@@ -23,9 +23,7 @@
             "request": "attach",
             // set python path
             "program": "/data/songlin/.miniconda3/envs/py36/bin/python",
-            // "processId": "${command:pickProcess}",
-            "processId": "1001",
-            "additionalSOLibSearchPath": "${workspaceFolder}/build",
+            "processId": "${command:pickProcess}",
             "MIMode": "gdb",
             "setupCommands": [
                 {
