@@ -25,6 +25,10 @@
             "program": "/data/songlin/.miniconda3/envs/py36/bin/python",
             "processId": "${command:pickProcess}",
             "MIMode": "gdb",
+            "symbolLoadInfo": {
+                "loadAll": false,
+                "exceptionList": "libtvm.so;libtvm_runtime.so"
+            },
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -32,8 +36,8 @@
                     "ignoreFailures": true
                 },
                 {
-                    "description": "Skip stdio-common files",
-                    "text": "-interpreter-exec console \"skip -gfi stdlib/*.c\""
+                    "description": "load .gdbinit",
+                    "text": "source ${workspaceFolder}/.gdbinit"
                 }
             ],
         },
