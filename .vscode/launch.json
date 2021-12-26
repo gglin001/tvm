@@ -18,28 +18,18 @@
             },
         },
         {
-            "name": "(gdb) Attach",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "attach",
-            // set python path
-            "program": "/data/songlin/.miniconda3/envs/py36/bin/python",
-            "processId": "${command:pickProcess}",
-            "MIMode": "gdb",
-            "symbolLoadInfo": {
-                "loadAll": false,
-                "exceptionList": "libtvm.so;libtvm_runtime.so"
-            },
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                },
-                {
-                    "description": "load .gdbinit",
-                    "text": "source ${workspaceFolder}/.gdbinit"
-                }
-            ],
+            "name": "Attach",
+            "pid": "${command:pickMyProcess}" // use ${command:pickProcess} to pick other users' processes
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch",
+            "program": "${command:cmake.selectLaunchTarget}",
+            "args": [],
+            "cwd": "${workspaceFolder}"
         },
     ],
 }

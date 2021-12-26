@@ -1,9 +1,9 @@
 {
     // set python path
-    "python.pythonPath": "/data/songlin/.miniconda3/envs/py36/bin/python",
+    "python.pythonPath": "/Users/allen/opt/miniconda3/envs/py36/bin/python",
     "python.envFile": "${workspaceFolder}/.env",
     // set python path
-    "ffi_navigator.pythonpath": "/data/songlin/.miniconda3/envs/py36/bin/python",
+    "ffi_navigator.pythonpath": "/Users/allen/opt/miniconda3/envs/py36/bin/python",
     "terminal.integrated.env.linux": {
         "PYTHONPATH": "${workspaceFolder}/python:${env:PYTHONPATH}",
         "TVM_BACKTRACE": "1",
@@ -11,17 +11,19 @@
     },
     "cmake.configureSettings": {
         // sue conda (env) lib
-        "CMAKE_PREFIX_PATH": "/data/songlin/.miniconda3/envs/py36/bin/python/lib",
+        // "BUILD_SHARED_LIBS": "ON",
+        "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_PREFIX_PATH": "/Users/allen/opt/miniconda3/envs/py36/lib",
         "USE_LLVM": "ON",
         "USE_RELAY_DEBUG": "ON",
         "USE_TARGET_ONNX": "ON",
         "USE_MKLDNN": "OFF",
-        "USE_VTA_FSIM": "ON",
+        "USE_VTA_FSIM": "OFF",
         "USE_STACKVM_RUNTIME": "ON",
         "USE_GRAPH_RUNTIME": "ON",
-        "USE_GRAPH_RUNTIME_DEBUG": "ON",
+        "USE_GRAPH_EXECUTOR_DEBUG": "ON",
         "USE_MICRO_STANDALONE_RUNTIME": "ON",
-        "BUILD_SHARED_LIBS": "ON"
+        "USE_LIBBACKTRACE": "ON"
     },
     "python.analysis.extraPaths": [
         "python",

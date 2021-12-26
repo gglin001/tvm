@@ -2,7 +2,7 @@ import os
 import sys
 
 # repo_path/python
-tvm_path = '/data/songlin/repos/tvm/python'
+tvm_path = '/Users/allen/Repos/tvm/python'
 sys.path.append(tvm_path)
 import tvm
 
