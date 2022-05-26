@@ -1,0 +1,28 @@
+{
+    // "terminal.integrated.env.mac": {
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}/python:${env:PYTHONPATH}",
+        "TVM_BACKTRACE": "1",
+        "DMLC_LOG_DEBUG": "1",
+        "GLOG_v": "10",
+    },
+    "cmake.configureSettings": {
+        "USE_LLVM": "ON",
+        "USE_RELAY_DEBUG": "ON",
+        "USE_TARGET_ONNX": "ON",
+        "USE_MKLDNN": "OFF",
+        "USE_VTA_FSIM": "OFF",
+        "USE_STACKVM_RUNTIME": "ON",
+        "USE_GRAPH_RUNTIME": "ON",
+        "USE_PROFILER": "ON",
+        "USE_MICRO_STANDALONE_RUNTIME": "ON",
+        "USE_LIBBACKTRACE": "OFF",
+        "USE_GTEST": "OFF",
+        "USE_DNNL_CODEGEN": "OFF",
+        "USE_GLOG": "ON",
+    },
+    "python.analysis.extraPaths": [
+        "python",
+        "${fileDirname}"
+    ],
+}
