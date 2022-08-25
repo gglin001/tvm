@@ -28,6 +28,8 @@ from .utils import (
     expand_spatial_dimensions,
     add_pad,
     bind_data_copy,
+    get_texture_storage,
+    get_default_conv2d_config,
 )
 
 
@@ -240,6 +242,9 @@ def schedule_depthwise_conv2d_NCHWc_KCRSk(cfg, s, output):
     cfg.define_split("tile_rx", rx, num_outputs=2)
     cfg.define_knob("auto_unroll_max_step", [0, 512, 1500])
     cfg.define_knob("unroll_explicit", [0, 1])
+
+    if cfg.is_fallback:
+        get_default_conv2d_config(cfg, conv.shape[1], conv.shape[2], conv.shape[3])
     ##### space definition end #####
 
     pad_data, kernel = s[conv].op.input_tensors
@@ -248,23 +253,28 @@ def schedule_depthwise_conv2d_NCHWc_KCRSk(cfg, s, output):
     ):  # len(latest.op.axis) == 4:
         # manage scheduling of datacopy
         pad_data, kernel = s[conv].op.input_tensors
-        pack_data = pad_data.op.input_tensors[0]
-        bind_data_copy(s[pack_data])
+        if "pad_temp" in pad_data.op.name:
+            pack_data = pad_data.op.input_tensors[0]
+            bind_data_copy(s[pack_data])
+        else:
+            bind_data_copy(s[pad_data])
         bind_data_copy(s[kernel])
 
     pad_data, kernel = s[conv].op.input_tensors
 
-    s[pad_data].compute_inline()
+    if "pad_temp" in pad_data.op.name:
+        s[pad_data].compute_inline()
 
     s[conv].set_scope("local")
     if latest_blocked == latest and output != latest:
         s[output].compute_inline()
 
-    # create cache stage
-    AT = s.cache_read(pad_data, "global.texture", [conv])
-    WT = s.cache_read(kernel, "global.texture-weight", [conv])
-    bind_data_copy(s[AT])
-    bind_data_copy(s[WT])
+    if autotvm.GLOBAL_SCOPE.in_tuning or len(latest.op.axis) == 4:
+        # create cache stage for tuning only or in case of 4d case
+        AT = s.cache_read(pad_data, get_texture_storage(pad_data.shape), [conv])
+        bind_data_copy(s[AT])
+        WT = s.cache_read(kernel, get_texture_storage(kernel.shape), [conv])
+        bind_data_copy(s[WT])
 
     # tile and bind spatial axes
     n, fc, y, x, fb = s[latest_blocked].op.axis

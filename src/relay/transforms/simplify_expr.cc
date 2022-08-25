@@ -30,6 +30,7 @@
 #include <tvm/relay/transform.h>
 #include <tvm/runtime/logging.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -334,7 +335,7 @@ class SimplifyTranspose : public DFPatternRewrite {
     if (auto attr = call->attrs.as<TransposeAttrs>()) {
       if (attr->axes.defined()) {
         for (int i = 0; i < ndim; ++i) {
-          int64_t axis = attr->axes[i];
+          int64_t axis = attr->axes[i].IntValue();
           axis += (axis < 0) ? ndim : 0;
           attr_axes.push_back(axis);
         }
@@ -546,8 +547,10 @@ class ConcretizeCollapseSumLikeRewrite : public ConcretizeLikeRewrite {
     static const Op& op = Op::Get("collapse_sum_to");
     auto attrs = make_object<InitOpAttrs>();
     attrs->shape = shape;
-    auto cshape =
-        MakeConstantTensor(DataType::Int(32), {static_cast<int64_t>(shape.size())}, shape);
+    std::vector<int64_t> s;
+    std::transform(shape.begin(), shape.end(), std::back_inserter(s),
+                   [](Integer i) { return i.IntValue(); });
+    auto cshape = MakeConstantTensor(DataType::Int(32), {static_cast<int64_t>(shape.size())}, s);
     return Call(op, {node_map[data_pat_][0], cshape}, Attrs(attrs));
   }
 };
@@ -682,6 +685,29 @@ class SimplifyConsecutiveAdd : public DFPatternRewrite {
   DFPattern const2_;
 };
 
+class SimplifyRSqrt : public DFPatternRewrite {
+ public:
+  SimplifyRSqrt() {
+    x_ = IsWildcard();
+    numerator_ = IsWildcard();
+    auto sqrt = IsOp("sqrt");
+    pattern_ = IsOp("divide")({numerator_, sqrt({x_})});
+  }
+
+  Expr Callback(const Expr& pre, const Expr& post,
+                const Map<DFPattern, Array<Expr>>& node_map) const override {
+    static const Op& op = Op::Get("rsqrt");
+    auto x = node_map[x_][0];
+    auto numerator = node_map[numerator_][0];
+    return Call(Op::Get("multiply"), {numerator, Call(op, {x})});
+  }
+
+ private:
+  /*! \brief Pattern input */
+  DFPattern x_;
+  DFPattern numerator_;
+};
+
 Expr SimplifyExpr(const Expr& expr, const IRModule& mod) {
   // the rewrites will be applied in the given order, and repeated until fixed point
   DFPatternRewriteComposer composer;
@@ -691,6 +717,7 @@ Expr SimplifyExpr(const Expr& expr, const IRModule& mod) {
   composer.AddRewrite<ConcretizeReshapeLikeRewrite>();
   composer.AddRewrite<ConcretizeCollapseSumLikeRewrite>();
   composer.AddRewrite<ConcretizeBroadcastToLikeRewrite>();
+  composer.AddRewrite<SimplifyRSqrt>();
   composer.AddRewrite<EliminateIdentityRewrite>();
   composer.AddRewrite<SimplifyReshape>();
   composer.AddRewrite<SimplifyTranspose>();

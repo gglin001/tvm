@@ -148,6 +148,21 @@ def test_match_buffer_syntax_sugar():
     assert_structural_equal(elementwise_handle, elementwise_buffer_no_kwargs)
 
 
+def test_match_buffer_1d():
+    @T.prim_func
+    def func_no_sugar(a: T.handle):
+        A = T.match_buffer(a, shape=(16,))
+        for i in T.serial(16):
+            A[i] = 0.0
+
+    @T.prim_func
+    def func_with_sugar(A: T.Buffer[16, "float32"]):
+        for i in T.serial(16):
+            A[i] = 0.0
+
+    assert_structural_equal(func_no_sugar, func_with_sugar)
+
+
 # match buffer failed case
 def test_match_buffer_no_kwargs_failed():
     with pytest.raises(ValueError) as e:
@@ -185,7 +200,7 @@ def test_dynamic_shape_gemm():
 @T.prim_func
 def preflattened_buffer_map(A: T.handle, B: T.handle):
     A_1 = T.match_buffer(A, [1])
-    T.preflattened_buffer(A_1, [1], align=T.int32(1), offset_factor=T.int64(2))
+    T.preflattened_buffer(A_1, [1], align=1, offset_factor=2)
     B_1 = T.match_buffer(B, [1])
     T.preflattened_buffer(B_1, [1])
     B_1[0] = A_1[0]
@@ -326,7 +341,7 @@ def test_func_call():
 
     # The following is an example of an error message from calling an invalid function
 
-    # error: Error occured when invoking the function sqrt:
+    # error: Error occurred when invoking the function sqrt:
     # loop of ufunc does not support argument 0 of type Var which has no callable sqrt method
     #  --> test_tvmscript_syntax_sugar.py:334:19
     #      |

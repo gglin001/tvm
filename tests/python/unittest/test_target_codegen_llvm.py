@@ -17,20 +17,19 @@
 import collections
 import ctypes
 import json
+import math
+import re
 import sys
 
+import numpy as np
+import pytest
 import tvm
 import tvm.testing
 from tvm import te
+from tvm.contrib import clang, utils
 from tvm.relay.backend import Runtime
-from tvm.contrib import utils, clang
-from tvm.target.codegen import llvm_lookup_intrinsic_id, llvm_get_intrinsic_name
-import tvm.script.tir as T
-import numpy as np
-
-import math
-import re
-import pytest
+from tvm.script import tir as T
+from tvm.target.codegen import llvm_get_intrinsic_name, llvm_lookup_intrinsic_id
 
 
 @tvm.testing.requires_llvm
@@ -958,7 +957,9 @@ def test_llvm_target_attributes():
     functions_with_target = []
 
     for line in llvm_ir_lines:
-        func_def = re.match("define.* @(?P<func_name>[^(]*)\(.* #(?P<attr_num>[0-9]+) {$", line)
+        func_def = re.match(
+            "define.* @(?P<func_name>[^(]*)[(].* #(?P<attr_num>[0-9]+) (!.* |){$", line
+        )
         if func_def:
             functions_with_target.append(func_def.group("func_name"))
             attributes_with_target[func_def.group("attr_num")] = True
@@ -969,7 +970,7 @@ def test_llvm_target_attributes():
 
     for k in list(attributes_with_target.keys()):
         assert re.match('.*"target-cpu"="skylake".*', attribute_definitions[k])
-        assert re.match('.*"target-features"=".*\+avx512f.*".*', attribute_definitions[k])
+        assert re.match('.*"target-features"=".*[+]avx512f.*".*', attribute_definitions[k])
 
     expected_functions = ["test_func", "test_func_compute_", "__tvm_parallel_lambda"]
     for n in expected_functions:

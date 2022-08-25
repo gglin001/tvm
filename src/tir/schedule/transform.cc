@@ -70,6 +70,32 @@ Array<MatchBufferRegion> ReplaceBuffer(Array<MatchBufferRegion> match_buffers, c
   return match_buffers;
 }
 
+Array<BufferRegion> ReplaceBufferRegion(Array<BufferRegion> regions, const Buffer& source_buffer,
+                                        const BufferRegion& target) {
+  regions.MutateByApply([&source_buffer, &target](const BufferRegion& region) -> BufferRegion {
+    if (region->buffer.same_as(source_buffer)) {
+      return target;
+    }
+    return region;
+  });
+  return regions;
+}
+
+Array<MatchBufferRegion> ReplaceBufferRegion(Array<MatchBufferRegion> match_buffers,
+                                             const Buffer& source_buffer,
+                                             const BufferRegion& target) {
+  match_buffers.MutateByApply([&source_buffer, &target](
+                                  const MatchBufferRegion& match_buffer) -> MatchBufferRegion {
+    if (match_buffer->source->buffer.same_as(source_buffer)) {
+      ObjectPtr<MatchBufferRegionNode> n = make_object<MatchBufferRegionNode>(*match_buffer.get());
+      n->source = target;
+      return MatchBufferRegion(n);
+    }
+    return match_buffer;
+  });
+  return match_buffers;
+}
+
 /******** ReplaceBufferMutator ********/
 ReplaceBufferMutator::ReplaceBufferMutator(const Buffer& old_buffer, Buffer new_buffer,
                                            Map<Block, Block>* block_sref_reuse)
@@ -194,9 +220,24 @@ void LeafBlockRemovalPlan(const ScheduleState& self, const StmtSRef& leaf_block_
     }
   }
   if (const auto* block = sref->StmtAs<BlockNode>()) {
-    if (const auto* seq = block->body.as<SeqStmtNode>()) {
+    auto body = block->body;
+    // Peel off AllocateConst nodes at the beginning of the block body.
+    std::vector<const AllocateConstNode*> allocs;
+    while (const auto* alloc = body.as<AllocateConstNode>()) {
+      allocs.push_back(alloc);
+      body = alloc->body;
+    }
+    if (const auto* seq = body.as<SeqStmtNode>()) {
       ObjectPtr<BlockNode> n = make_object<BlockNode>(*block);
-      n->body = RemoveFromSeqStmt(GetRef<SeqStmt>(seq), GetRef<Stmt>(last_stmt));
+      auto new_seq = RemoveFromSeqStmt(GetRef<SeqStmt>(seq), GetRef<Stmt>(last_stmt));
+      // Re-attach AllocateConst nodes
+      auto new_body = new_seq;
+      for (int i = 0; i < static_cast<int>(allocs.size()); ++i) {
+        auto alloc = allocs[allocs.size() - 1 - i];
+        new_body = AllocateConst(alloc->buffer_var, alloc->dtype, alloc->extents, alloc->data,
+                                 new_body, alloc->annotations, alloc->span);
+      }
+      n->body = new_body;
       *src_stmt = GetRef<Stmt>(block);
       *tgt_stmt = Stmt(std::move(n));
       return;
@@ -252,13 +293,13 @@ Optional<LoopRV> TileWithTensorIntrin(const tir::Schedule& sch, const tir::Block
     int64_t total = int_block_extent->value;
     int64_t inner = int_desc_extent->value;
     ICHECK_EQ(total % inner, 0);
-    int64_t outer = int_block_extent->value / int_desc_extent->value;
-    // Do the split
-    Array<LoopRV> split = sch->Split(loop2rv.at(block_loop_sref), {Integer(outer), Integer(inner)});
+    // Do the split. Leave the outer extent as NullOpt (unspecified) so that the split factors
+    // can be used for different extents (needed during tuning).
+    Array<LoopRV> split = sch->Split(loop2rv.at(block_loop_sref), {NullOpt, Integer(inner)});
     ICHECK_EQ(split.size(), 2);
     inner_loops.insert(sch->GetSRef(split[1]).operator->());
     // The inner split will be reordered to the loop domain that is tensorized
-    int desc_loop_index = info->desc_loop_indexer.at(GetRef<tir::For>(desc_loop));
+    int desc_loop_index = info->desc_loop_indexer.at(GetRef<tir::For>(desc_loop)).IntValue();
     reorder_suffix[desc_loop_index] = split[1];
   }
   // Reorder the loops
@@ -279,6 +320,37 @@ Optional<LoopRV> TileWithTensorIntrin(const tir::Schedule& sch, const tir::Block
 }
 
 TVM_REGISTER_GLOBAL("tir.schedule.TileWithTensorIntrin").set_body_typed(TileWithTensorIntrin);
+
+/******** BlockBufferAccessSimplifier ********/
+void BlockBufferAccessSimplifier::SimplifyAccessRegion(Array<BufferRegion>* old_access_regions) {
+  auto fmutate = [this](const BufferRegion& buffer_region) {
+    std::vector<Range> new_buffer_region;
+    for (const auto& range : buffer_region->region) {
+      new_buffer_region.push_back(Range::FromMinExtent(analyzer_->Simplify(range->min),
+                                                       analyzer_->Simplify(range->extent)));
+    }
+    return BufferRegion(buffer_region->buffer, new_buffer_region);
+  };
+  (*old_access_regions).MutateByApply(fmutate);
+}
+
+Stmt BlockBufferAccessSimplifier::VisitStmt_(const BlockNode* op) {
+  Block block = Downcast<Block>(arith::IRMutatorWithAnalyzer::VisitStmt_(op));
+  auto* n = block.CopyOnWrite();
+  SimplifyAccessRegion(&n->reads);
+  SimplifyAccessRegion(&n->writes);
+  return std::move(block);
+}
+
+Stmt BlockBufferAccessSimplifier::VisitStmt_(const BufferStoreNode* op) {
+  auto node = Downcast<BufferStore>(arith::IRMutatorWithAnalyzer::VisitStmt_(op));
+  return VisitBufferAccess(std::move(node));
+}
+
+PrimExpr BlockBufferAccessSimplifier::VisitExpr_(const BufferLoadNode* op) {
+  auto node = Downcast<BufferLoad>(arith::IRMutatorWithAnalyzer::VisitExpr_(op));
+  return VisitBufferAccess(std::move(node));
+}
 
 }  // namespace tir
 }  // namespace tvm

@@ -25,3 +25,5 @@ from .dense import *
 from .injective import *
 from .pooling import *
 from .reduce import *
+from .resize2d import *
+from .qnn import *

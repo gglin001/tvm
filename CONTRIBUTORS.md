@@ -47,6 +47,7 @@ We do encourage everyone to work anything they are interested in.
 - [Ziheng Jiang](https://github.com/ZihengJiang) (PMC): @ZihengJiang - relay, compiler
 - [Manupa Karunaratne](https://github.com/manupa-arm): @manupa-arm - ethos-u, memory planner
 - [Marisa Kirisame](https://github.com/MarisaKirisame): @MarisaKirisame - relay
+- [Tristan Konolige](https://github.com/tkonolige): @tkonolige - profiling, relay, tir, runtime
 - [Ruihang Lai](https://github.com/MasterJH5574): @MasterJH5574 - tir, tvm-script
 - [Wuwei Lin](https://github.com/vinx13): @vinx13 - relay, topi
 - [Yizhi Liu](https://github.com/yzhliu) (PMC): @yzhliu - jvm, topi, relay
@@ -62,6 +63,7 @@ We do encourage everyone to work anything they are interested in.
 - [Lily Orth-Smith](https://github.com/electriclilies): @electriclilies - relay
 - [Krzysztof Parzyszek](https://github.com/kparzysz-quic) (PMC): @kparzysz-quic - hexagon, llvm
 - [Andrew Reusch](https://github.com/areusch): (PMC) @areusch - runtime, microTVM
+- [David Riazati](https://github.com/driazati): @driazati - ci, community
 - [Jared Roesch](https://github.com/jroesch) (PMC): @jroesch - relay
 - [Gustavo Romero](https://github.com/gromero): @gromero - microtvm, tvmc
 - [Giuseppe Rossini](https://github.com/giuseros): @giuseros - aot, arm
@@ -93,6 +95,7 @@ We do encourage everyone to work anything they are interested in.
 - [Liangfu Chen](https://github.com/liangfu): @liangfu
 - [Tianqi Chen](https://github.com/tqchen): @tqchen
 - [Zhi Chen](https://github.com/zhiics): @zhiics
+- [Valery Chernov](https://github.com/vvchernov): @vvchernov
 - [Neo Chien](https://github.com/cchung100m): @cchung100m
 - [Meghan Cowan](https://github.com/cowanmeg): @cowanmeg
 - [Balint Cristian](https://github.com/cbalint13): @cbalint13
@@ -101,6 +104,7 @@ We do encourage everyone to work anything they are interested in.
 - [Haozheng Fan](https://github.com/hzfan): @hzfan
 - [Siyuan Feng](https://github.com/Hzfengsy): @Hzfengsy
 - [Josh Fromm](https://github.com/jwfromm): @jwfromm
+- [Alexey Gladyshev](https://github.com/KJlaccHoeUM9l): @KJlaccHoeUM9l
 - [Sergei Grechanik](https://github.com/sgrechanik-h): @sgrechanik-h
 - [Altan Haan](https://github.com/altanh): @altanh
 - [Mehrdad Hessar](https://github.com/mehrdadh): @mehrdadh
@@ -112,10 +116,14 @@ We do encourage everyone to work anything they are interested in.
 - [Chenfan Jia](https://github.com/jcf94): @jcf94
 - [Hua Jiang](https://github.com/huajsj): @huajsj
 - [Ziheng Jiang](https://github.com/ZihengJiang): @ZihengJiang
+- [Hongyi Jin](https://github.com/jinhongyii): @jinhongyii
 - [Manupa Karunaratne](https://github.com/manupa-arm): @manupa-arm
 - [Elen Kalda](https://github.com/ekalda): @ekalda
 - [Marisa Kirisame](https://github.com/MarisaKirisame): @MarisaKirisame
+- [Michael J. Klaiber](https://github.com/MichaelJKlaiber/) @MichaelJKlaiber
+- [Noah Kontur](https://github.com/konturn/) @konturn
 - [Tristan Konolige](https://github.com/tkonolige): @tkonolige
+- [Denise Kutnick](https://github.com/denise-k): @denise-k
 - [Ruihang Lai](https://github.com/MasterJH5574): @MasterJH5574
 - [Nicola Lancellotti](https://github.com/nicolalancellotti): @NicolaLancellotti
 - [Wuwei Lin](https://github.com/vinx13): @vinx13
@@ -141,6 +149,7 @@ We do encourage everyone to work anything they are interested in.
 - [Michalis Papadimitriou](https://github.com/mikepapadim): @mikepapadim
 - [Ashutosh Parkhi](https://github.com/ashutosh-arm): @ashutosh-arm
 - [Krzysztof Parzyszek](https://github.com/kparzysz-quic): @kparzysz-quic
+- [Alexander Peskov](https://github.com/apeskov): @apeskov
 - [Pariksheet Pinjari](https://github.com/PariksheetPinjari909): @PariksheetPinjari909
 - [Josh Pollock](https://github.com/joshpoll): @joshpoll
 - [Ramana Radhakrishnan](https://github.com/u99127): @u99127
@@ -153,11 +162,13 @@ We do encourage everyone to work anything they are interested in.
 - [Junru Shao](https://github.com/junrushao1994): @junrushao1994
 - [Haichen Shen](https://github.com/icemelon): @icemelon
 - [Xingjian Shi](https://github.com/sxjscience): @sxjscience
+- [Yuanjing Shi](https://github.com/shingjan): @shingjan
 - [Mark Shields](https://github.com/mbs-octoml): @mbs-octoml
 - [Christopher Sidebottom](https://github.com/mousius): @mousius
 - [Siva Rama Krishna Reddy](https://github.com/srkreddy1238): @srkreddy1238
 - [Dmitriy Smirnov](https://github.com/d-smirnov): @d-smirnov
 - [Jon Soifer](https://github.com/soiferj): @soiferj
+- [Adam Straw](https://github.com/adstraw): @adstraw
 - [Chris Sullivan](https://github.com/csullivan): @csullivan
 - [Zhixun Tan](https://github.com/phisiart): @phisiart
 - [Andrew Tulloch](https://github.com/ajtulloch): @ajtulloch
@@ -165,6 +176,7 @@ We do encourage everyone to work anything they are interested in.
 - [Gavin Uberti](https://github.com/guberti): @guberti
 - [Luis Vega](https://github.com/vegaluisjose): @vegaluisjose
 - [Thomas Viehmann](https://github.com/t-vi): @t-vi
+- [An Wang](https://github.com/anwang2009): @anwang2009
 - [Yao Wang](https://github.com/kevinthesun): @kevinthesun
 - [Yuchen Wang](https://github.com/wyc-ruiker): @wyc-ruiker
 - [Leyuan Wang](https://github.com/Laurawly): @Laurawly

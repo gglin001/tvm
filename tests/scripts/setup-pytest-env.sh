@@ -24,7 +24,7 @@ if [[ ! -z $CI_PYTEST_ADD_OPTIONS ]]; then
 else
     export PYTEST_ADDOPTS="-s -vv $PYTEST_ADDOPTS"
 fi
-set -u
+set -ux
 
 export TVM_PATH=`pwd`
 export PYTHONPATH="${TVM_PATH}/python"
@@ -51,20 +51,41 @@ function run_pytest() {
     shift
     local test_suite_name="$1"
     shift
+    extra_args=( "$@" )
     if [ -z "${ffi_type}" -o -z "${test_suite_name}" ]; then
-        echo "error: run_pytest called incorrectly: run_pytest ${ffi_type} ${test_suite_name} $@"
+        echo "error: run_pytest called incorrectly: run_pytest ${ffi_type} ${test_suite_name}" "${extra_args[@]}"
         echo "usage: run_pytest <FFI_TYPE> <TEST_SUITE_NAME> [pytest args...]"
         exit 2
     fi
 
-    suite_name="${test_suite_name}-${ffi_type}"
+    # Allow unbound variable here.
+    set +u
+    if [[ -z "${TVM_SHARD_INDEX}" ]]; then
+      current_shard="no-shard"
+    else
+      current_shard="shard-${TVM_SHARD_INDEX}"
+    fi
+    set -u
+
+    has_reruns=$(python3 -m pytest --help 2>&1 | grep 'reruns=' || true)
+    if [ -n "$has_reruns" ]; then
+        extra_args+=('--reruns=3')
+    fi
+
+    suite_name="${test_suite_name}-${current_shard}-${ffi_type}"
+
+    if [ ! "${extra_args[@]}" == *" -n"* ] && [! "${extra_args[@]}" == *" -dist"* ]; then
+        extra_args+=("-n=1")
+    fi
+
     exit_code=0
     TVM_FFI=${ffi_type} python3 -m pytest \
            -o "junit_suite_name=${suite_name}" \
            "--junit-xml=${TVM_PYTEST_RESULT_DIR}/${suite_name}.xml" \
            "--junit-prefix=${ffi_type}" \
-           "$@" || exit_code=$?
-    if [ "$exit_code" -ne "0" ]; then
+           "${extra_args[@]}" || exit_code=$?
+    # Pytest will return error code -5 if no test is collected.
+    if [ "$exit_code" -ne "0" ] && [ "$exit_code" -ne "5" ]; then
         pytest_errors+=("${suite_name}: $@")
     fi
 }

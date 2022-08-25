@@ -27,6 +27,7 @@
 #include <tvm/auto_scheduler/measure.h>
 #include <tvm/auto_scheduler/measure_record.h>
 #include <tvm/driver/driver_api.h>
+#include <tvm/ir/global_var_supply.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/support/parallel_for.h>
 #include <tvm/te/operation.h>
@@ -884,9 +885,9 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
         mem_bytes += touched_size * buffer_dtypes.at(t).bytes();
       }
 
-      mem_bytes_list->push_back(std::log2(mem_bytes));
+      mem_bytes_list->push_back(mem_bytes);
       *cur_compute_ops *= GetLoopExtent(for_loop_stack_[i], local_analyzer);
-      compute_ops_list->push_back(std::log2(*cur_compute_ops));
+      compute_ops_list->push_back(*cur_compute_ops);
     }
 
     //  Buffer access related features (per buffer)
@@ -1232,7 +1233,7 @@ void GetPerStoreFeature(const PrimFunc& func, int cache_line_size, int max_n_buf
 
     /***** Group 3: Arithmetic intensity related features *****/
     for (size_t i = 0; i < ARITH_INTENSITY_CURVE_SAMPLE_N; ++i) {
-      ret->push_back(fea_set.arith_intensity_curve[i]);
+      ret->push_back(slog(fea_set.arith_intensity_curve[i]));
     }
 
     /***** Group 4: Allocation related features *****/
@@ -1371,7 +1372,8 @@ void GetPerStoreFeaturesWorkerFunc(const SearchTask& task, const State& state, i
     auto pass_ctx = tvm::transform::PassContext::Current();
 
     auto mod = ScheduleToModule(sch, Array<ObjectRef>{tensors.begin(), tensors.end()}, name,
-                                std::unordered_map<te::Tensor, te::Buffer>());
+                                std::unordered_map<te::Tensor, te::Buffer>(),
+                                GlobalVarSupply(NameSupply("")));
 
     bool disable_vectorize =
         pass_ctx->GetConfig<Bool>("tir.disable_vectorize", Bool(false)).value();

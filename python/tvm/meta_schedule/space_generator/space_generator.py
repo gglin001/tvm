@@ -18,7 +18,7 @@
 Meta Schedule design space generators that generates design
 space for generation of measure candidates.
 """
-from typing import TYPE_CHECKING, Callable, List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 from tvm._ffi import register_object
 from tvm.ir import IRModule
@@ -35,7 +35,13 @@ if TYPE_CHECKING:
 class SpaceGenerator(Object):
     """The abstract design space generator interface."""
 
-    def initialize_with_tune_context(self, context: "TuneContext") -> None:
+    ScheduleFnType = Union[
+        Callable[[Schedule], None],  # No output
+        Callable[[Schedule], Schedule],  # Single output
+        Callable[[Schedule], List[Schedule]],  # Multiple outputs
+    ]
+
+    def _initialize_with_tune_context(self, context: "TuneContext") -> None:
         """Initialize the design space generator with tuning context.
 
         Parameters
@@ -61,6 +67,9 @@ class SpaceGenerator(Object):
             The generated design spaces, i.e., schedules.
         """
         return _ffi_api.SpaceGeneratorGenerateDesignSpace(self, mod)  # type: ignore # pylint: disable=no-member
+
+
+ScheduleFnType = SpaceGenerator.ScheduleFnType
 
 
 @register_object("meta_schedule.PySpaceGenerator")
@@ -96,10 +105,10 @@ class PySpaceGenerator:
 
     _tvm_metadata = {
         "cls": _PySpaceGenerator,
-        "methods": ["initialize_with_tune_context", "generate_design_space"],
+        "methods": ["_initialize_with_tune_context", "generate_design_space"],
     }
 
-    def initialize_with_tune_context(self, context: "TuneContext") -> None:
+    def _initialize_with_tune_context(self, context: "TuneContext") -> None:
         """Initialize the design space generator with tuning context.
 
         Parameters
