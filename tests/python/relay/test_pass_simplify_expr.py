@@ -442,6 +442,13 @@ def test_simplify_consecutive_cast():
     expr1 = relay.cast(x, "int32")
     expr2 = relay.cast_like(expr1, y)
     actual = run_opt_pass(expr2, relay.transform.SimplifyExpr())
+    expected = run_infer_type(relay.cast(expr1, "float32"))
+    assert tvm.ir.structural_equal(actual, expected)
+
+    x = relay.var("x", shape=(3, 4), dtype="int64")
+    expr1 = relay.cast(x, "bool")
+    expr2 = relay.cast(expr1, "int32")
+    actual = run_opt_pass(expr2, relay.transform.SimplifyExpr())
     expected = run_infer_type(expr2)
     assert tvm.ir.structural_equal(actual, expected)
 
@@ -513,6 +520,17 @@ def test_concretize_broadcast_to_like():
     expr = relay.broadcast_to_like(data, shape_like)
 
     expected = run_infer_type(relay.broadcast_to(data, (3, 3, 3)))
+    actual = run_opt_pass(expr, relay.transform.SimplifyExpr())
+    assert tvm.ir.structural_equal(actual, expected)
+
+
+def test_concretize_cast_like():
+    dim_any = tvm.tir.Any()
+    data = relay.var("data", shape=(3, dim_any, 5), dtype="float32")
+    dtype_like = relay.var("dtype_like", shape=(dim_any, 3, 3), dtype="int32")
+    expr = relay.cast_like(data, dtype_like)
+
+    expected = run_infer_type(relay.cast(data, "int32"))
     actual = run_opt_pass(expr, relay.transform.SimplifyExpr())
     assert tvm.ir.structural_equal(actual, expected)
 
@@ -601,6 +619,54 @@ def test_simplify_rsqrt():
         opt = run_opt_pass(before(c), transform.SimplifyExpr())
         after = run_opt_pass(expected(c), transform.InferType())
         assert tvm.ir.structural_equal(opt, after)
+
+
+def test_simplify_dq_argmax():
+    shape = (4, 32, 1, 1)
+    x = relay.var("x", shape=shape, dtype="int8")
+
+    def before():
+        y = relay.qnn.op.dequantize(x, relay.const(2.0), relay.const(0))
+        return relay.op.argmax(y, axis=1)
+
+    def expected():
+        return relay.op.argmax(x, axis=1)
+
+    opt = run_opt_pass(before(), transform.SimplifyExpr())
+    after = run_opt_pass(expected(), transform.InferType())
+    assert tvm.ir.structural_equal(opt, after)
+
+
+def test_simplify_dq_argmin():
+    shape = (4, 32, 1, 1)
+    x = relay.var("x", shape=shape, dtype="int8")
+
+    def before():
+        y = relay.qnn.op.dequantize(x, relay.const(2.0), relay.const(0))
+        return relay.op.argmin(y, axis=1)
+
+    def expected():
+        return relay.op.argmin(x, axis=1)
+
+    opt = run_opt_pass(before(), transform.SimplifyExpr())
+    after = run_opt_pass(expected(), transform.InferType())
+    assert tvm.ir.structural_equal(opt, after)
+
+
+def test_simplify_dq_argsort():
+    shape = (4, 32, 1, 1)
+    x = relay.var("x", shape=shape, dtype="int8")
+
+    def before():
+        y = relay.qnn.op.dequantize(x, relay.const(2.0), relay.const(0))
+        return relay.op.argsort(y, axis=1)
+
+    def expected():
+        return relay.op.argsort(x, axis=1)
+
+    opt = run_opt_pass(before(), transform.SimplifyExpr())
+    after = run_opt_pass(expected(), transform.InferType())
+    assert tvm.ir.structural_equal(opt, after)
 
 
 if __name__ == "__main__":
