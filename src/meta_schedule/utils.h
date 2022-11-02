@@ -44,6 +44,7 @@
 
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -92,13 +93,17 @@ class PyLogMessage {
       logger_(static_cast<int>(logging_level_), std::string(filename_), lineno_, stream_.str());
     } else {
       if (logging_level_ == Level::INFO) {
-        runtime::detail::LogMessage(filename_, lineno_).stream() << stream_.str();
+        runtime::detail::LogMessage(filename_, lineno_, TVM_LOG_LEVEL_INFO).stream()
+            << stream_.str();
       } else if (logging_level_ == Level::WARNING) {
-        runtime::detail::LogMessage(filename_, lineno_).stream() << "Warning: " << stream_.str();
+        runtime::detail::LogMessage(filename_, lineno_, TVM_LOG_LEVEL_WARNING).stream()
+            << stream_.str();
       } else if (logging_level_ == Level::ERROR) {
-        runtime::detail::LogMessage(filename_, lineno_).stream() << "Error: " << stream_.str();
+        runtime::detail::LogMessage(filename_, lineno_, TVM_LOG_LEVEL_ERROR).stream()
+            << stream_.str();
       } else if (logging_level_ == Level::DEBUG) {
-        runtime::detail::LogMessage(filename_, lineno_).stream() << "Debug: " << stream_.str();
+        runtime::detail::LogMessage(filename_, lineno_, TVM_LOG_LEVEL_DEBUG).stream()
+            << stream_.str();
       } else {
         runtime::detail::LogFatal(filename_, lineno_).stream() << stream_.str();
       }
@@ -150,7 +155,8 @@ inline void clear_logging(const char* file, int lineno, PackedFunc logging_func)
     logging_func(static_cast<int>(PyLogMessage::Level::CLEAR), file, lineno, "");
   } else {
     // this would clear all logging output in the console
-    runtime::detail::LogMessage(file, lineno).stream() << "\033c\033[3J\033[2J\033[0m\033[H";
+    runtime::detail::LogMessage(file, lineno, TVM_LOG_LEVEL_INFO).stream()
+        << "\033c\033[3J\033[2J\033[0m\033[H";
   }
 }
 
@@ -500,6 +506,41 @@ inline void CloneRules(const SpaceGeneratorNode* src, SpaceGeneratorNode* dst) {
     }
     dst->mutator_probs = std::move(mutator_probs);
   }
+}
+
+/*! \brief Returns true if the given target is one of the supported gpu targets. */
+inline bool IsGPUTarget(const std::string& target_name) {
+  static const std::unordered_set<std::string> gpu_targets{"cuda", "rocm", "vulkan", "metal"};
+  return gpu_targets.count(target_name);
+}
+
+/*!
+ * \brief Create an AutoInline schedule rule for the given target.
+ * \param target_name The name of the target ("llvm", "cuda", etc.)
+ * \return The AutoInline schedule rule for the given target.
+ */
+inline ScheduleRule GetDefaultAutoInline(const std::string& target_name) {
+  if (target_name == "llvm" || target_name == "hexagon") {
+    return ScheduleRule::AutoInline(
+        /*into_producer=*/false,
+        /*into_consumer=*/true,
+        /*inline_const_tensor=*/true,
+        /*disallow_if_then_else=*/true,
+        /*require_injective=*/true,
+        /*require_ordered=*/true,
+        /*disallow_op=*/Array<String>{"tir.exp"});
+  } else if (IsGPUTarget(target_name)) {
+    return ScheduleRule::AutoInline(
+        /*into_producer=*/true,
+        /*into_consumer=*/true,
+        /*inline_const_tensor=*/true,
+        /*disallow_if_then_else=*/false,
+        /*require_injective=*/false,
+        /*require_ordered=*/false,
+        /*disallow_op=*/Array<String>{});
+  }
+  LOG(FATAL) << "Unsupported target " << target_name;
+  return ScheduleRule(nullptr);
 }
 
 }  // namespace meta_schedule

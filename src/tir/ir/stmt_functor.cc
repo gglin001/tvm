@@ -86,8 +86,8 @@ void StmtVisitor::VisitStmt_(const BufferRealizeNode* op) {
 void StmtVisitor::VisitStmt_(const IfThenElseNode* op) {
   this->VisitExpr(op->condition);
   this->VisitStmt(op->then_case);
-  if (op->else_case.defined()) {
-    this->VisitStmt(op->else_case);
+  if (op->else_case) {
+    this->VisitStmt(op->else_case.value());
   }
 }
 
@@ -352,9 +352,9 @@ Stmt StmtMutator::VisitStmt_(const DeclBufferNode* op) {
 Stmt StmtMutator::VisitStmt_(const IfThenElseNode* op) {
   PrimExpr condition = this->VisitExpr(op->condition);
   Stmt then_case = this->VisitStmt(op->then_case);
-  Stmt else_case;
-  if (op->else_case.defined()) {
-    else_case = this->VisitStmt(op->else_case);
+  Optional<Stmt> else_case = NullOpt;
+  if (op->else_case) {
+    else_case = this->VisitStmt(op->else_case.value());
   }
   if (condition.same_as(op->condition) && then_case.same_as(op->then_case) &&
       else_case.same_as(op->else_case)) {
@@ -813,6 +813,9 @@ class IRSubstituteWithDataTypeLegalization : public DataTypeLegalizer {
  public:
   explicit IRSubstituteWithDataTypeLegalization(std::function<Optional<PrimExpr>(const Var&)> vmap)
       : vmap_(vmap) {}
+
+  using DataTypeLegalizer::VisitExpr_;
+  using DataTypeLegalizer::VisitStmt_;
 
   PrimExpr VisitExpr_(const VarNode* op) final {
     Var var = GetRef<Var>(op);

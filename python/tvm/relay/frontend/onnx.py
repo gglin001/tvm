@@ -928,10 +928,45 @@ class Gelu(OnnxOpConverter):
         return _op.multiply(term1, term2)
 
 
+class FastGelu(OnnxOpConverter):
+    """Operator converter for FastGelu from Microsoft onnxruntime contrib opset.
+
+    fast_gelu(x) = 0.5x(1 + tanh(sqrt(2/pi)(x + 0.044715x^3)))
+                 = 0.5x(1 + tanh((sqrt(2/pi)x + 0.044715(sqrt(2/pi)x^3)))
+                 = 0.5x(1 + tanh(c1 * x + c2 * x^3)))
+    , where
+        c1 = sqrt(2/pi)
+        c2 = 0.044715 * sqrt(2/pi)
+    """
+
+    @classmethod
+    def _impl_v1(cls, inputs, attr, params):
+        x = inputs[0]
+        if inputs[1]:
+            bias = inputs[1]
+            bias_shape = infer_shape(bias)
+            assert len(bias_shape) == 1, "bias term must be a 1D tensor"
+            x += bias
+
+        # Declare consts
+        const_dtype = infer_type(x).checked_type.dtype
+        half = _expr.const(0.5, dtype=const_dtype)
+        one = _expr.const(1.0, dtype=const_dtype)
+        const1 = _expr.const(math.sqrt(2 / math.pi), dtype=const_dtype)
+        const2 = _expr.const(0.044715 * math.sqrt(2 / math.pi), dtype=const_dtype)
+
+        # Compute FastGelu
+        term1 = _op.multiply(half, x)
+        term2 = _op.multiply(const1, x)
+        term3 = _op.multiply(const2, _op.power(x, _expr.const(3, const_dtype)))
+        tanh = _op.tanh(_op.add(term2, term3))
+        return _op.multiply(term1, _op.add(one, tanh))
+
+
 class BiasGelu(OnnxOpConverter):
     """Operator converter for BiasGelu from Microsoft onnxruntime contrib opset.
 
-    bias_gelu(x, b) = 0.5(x, b)(1 + erf((x + b)/sqrt(2)))
+    bias_gelu(x, b) = 0.5(x + b)(1 + erf((x + b)/sqrt(2)))
     """
 
     @classmethod
@@ -1647,6 +1682,32 @@ class Sum(OnnxOpConverter):
         return inputs[len(inputs) - 1]
 
 
+class Optional_(OnnxOpConverter):
+    """Operator converter for Optional based on sequence construction op."""
+
+    @classmethod
+    def _impl_v15(cls, inputs, attr, params):
+        return SequenceConstruct._impl_v11(inputs, attr, params)
+
+
+class OptionalHasElement(OnnxOpConverter):
+    """Operator converter for OptionalHasElement."""
+
+    @classmethod
+    def _impl_v15(cls, inputs, attr, params):
+        shape = infer_shape(inputs[0])
+        return _op.const(True) if shape else _op.const(False)
+
+
+class OptionalGetElement(OnnxOpConverter):
+    """Operator converter for OptionalGetElement based on sequence construction op."""
+
+    @classmethod
+    def _impl_v15(cls, inputs, attr, params):
+        opt_as_seq = Optional_._impl_v15(inputs, attr, params)
+        return _expr.TupleGetItem(opt_as_seq, 0)
+
+
 class Affine(OnnxOpConverter):
     """Operator converter for Affine transformation."""
 
@@ -1808,7 +1869,7 @@ class Cast(OnnxOpConverter):
         return AttrCvt(op_name="cast", transforms={"to": "dtype"})(inputs, attr)
 
     @classmethod
-    def _impl_v5(cls, inputs, attr, params):
+    def _impl_v6(cls, inputs, attr, params):
         try:
             from onnx import TensorProto
         except ImportError as e:
@@ -1825,7 +1886,16 @@ class Cast(OnnxOpConverter):
                 attr["to"] = str(TENSOR_TYPE_TO_NP_TYPE[attr["to"]])
             except ImportError as e:
                 raise ImportError("Unable to import onnx.mapping which is required {}".format(e))
+
         return AttrCvt(op_name="cast", transforms={"to": "dtype"})(inputs, attr)
+
+
+class CastLike(OnnxOpConverter):
+    """Operator converter for CastLike."""
+
+    @classmethod
+    def _impl_v15(cls, inputs, attr, params):
+        return AttrCvt(op_name="cast_like")(inputs, attr)
 
 
 class Unsqueeze(OnnxOpConverter):
@@ -4815,6 +4885,23 @@ class Trilu(OnnxOpConverter):
         return _op.trilu(data, k, upper)
 
 
+class GridSample(OnnxOpConverter):
+    """Operator converter for GridSample"""
+
+    @classmethod
+    def _impl_v16(cls, inputs, attr, params):
+        grid = inputs[1]
+        # onnx grid is of shape (N, H, W, 2) which should be transposed to (N, 2, H, W) for relay
+        grid = _op.transform.transpose(grid, axes=(0, 3, 1, 2))
+        method: str = attr.get("mode", b"bilinear").decode("utf-8")
+        padding_mode: str = attr.get("padding_mode", b"zeros").decode("utf-8")
+        # onnx default is 0 which should be changed to False in relay
+        align_corners = attr.get("align_corners", 0) != 0
+        return _op.image.grid_sample(
+            inputs[0], grid, method, padding_mode=padding_mode, align_corners=align_corners
+        )
+
+
 class RandomNormal(OnnxOpConverter):
     """Operator converter for random_normal"""
 
@@ -5322,6 +5409,9 @@ def _get_convert_map(opset):
     return {
         # defs/experimental
         "Identity": Renamer("copy"),
+        "Optional": Optional_.get_converter(opset),
+        "OptionalHasElement": OptionalHasElement.get_converter(opset),
+        "OptionalGetElement": OptionalGetElement.get_converter(opset),
         "Affine": Affine.get_converter(opset),
         "BitShift": BitShift.get_converter(opset),
         "ThresholdedRelu": ThresholdedRelu.get_converter(opset),
@@ -5341,7 +5431,6 @@ def _get_convert_map(opset):
         "Upsample": Upsample.get_converter(opset),
         "SpatialBN": BatchNorm.get_converter(opset),
         # defs/generator
-        # 'Constant' # Implemented
         # 'RandomUniform'
         # 'RandomNormal'
         # 'RandomUniformLike'
@@ -5367,6 +5456,7 @@ def _get_convert_map(opset):
         "Selu": Selu.get_converter(opset),
         "Elu": Elu.get_converter(opset),
         "Gelu": Gelu.get_converter(opset),
+        "FastGelu": FastGelu.get_converter(opset),
         "BiasGelu": BiasGelu.get_converter(opset),
         "LayerNormalization": LayerNormalization.get_converter(opset),
         # TODO: We need a better way to handle different domains, in case
@@ -5458,6 +5548,7 @@ def _get_convert_map(opset):
         "TopK": TopK.get_converter(opset),
         # defs/tensor
         "Cast": Cast.get_converter(opset),
+        "CastLike": CastLike.get_converter(opset),
         "Reshape": Reshape.get_converter(opset),
         "Expand": Expand.get_converter(opset),
         "Concat": Concat.get_converter(opset),
@@ -5494,6 +5585,7 @@ def _get_convert_map(opset):
         "Unique": Unique.get_converter(opset),
         "Einsum": Einsum.get_converter(opset),
         "Trilu": Trilu.get_converter(opset),
+        "GridSample": GridSample.get_converter(opset),
         # defs/control_flow
         "Loop": Loop.get_converter(opset),
         "If": If.get_converter(opset),
