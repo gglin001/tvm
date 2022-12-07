@@ -21,7 +21,7 @@ import logging
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import re
 
-from tvm import relay, topi
+from tvm import relay, topi, tir
 
 from ....auto_scheduler import is_auto_scheduler_enabled
 from ....meta_schedule import is_meta_schedule_enabled
@@ -395,9 +395,9 @@ def wrap_compute_conv2d_winograd_nnpack(topi_compute):
     return _compute_conv2d_nnpack
 
 
-@conv2d_winograd_without_weight_transfrom_strategy.register("arm_cpu")
-def conv2d_winograd_without_weight_transfrom_strategy_arm_cpu(attrs, inputs, out_type, target):
-    """conv2d_winograd_without_weight_transfrom arm cpu strategy"""
+@conv2d_winograd_without_weight_transform_strategy.register("arm_cpu")
+def conv2d_winograd_without_weight_transform_strategy_arm_cpu(attrs, inputs, out_type, target):
+    """conv2d_winograd_without_weight_transform arm cpu strategy"""
     dilation = attrs.get_int_tuple("dilation")
     groups = attrs.get_int("groups")
     layout = attrs.data_layout
@@ -405,7 +405,7 @@ def conv2d_winograd_without_weight_transfrom_strategy_arm_cpu(attrs, inputs, out
     kernel = inputs[1]
     assert dilation == (1, 1), "Do not support dilate now"
     assert strides == (1, 1), "Do not support strides now"
-    assert groups == 1, "Do not supoort arbitrary group number"
+    assert groups == 1, "Do not support arbitrary group number"
     strategy = _op.OpStrategy()
     if layout == "NCHW":
         if len(kernel.shape) == 5:
@@ -436,7 +436,7 @@ def conv2d_winograd_without_weight_transfrom_strategy_arm_cpu(attrs, inputs, out
             raise RuntimeError("Unsupported kernel shape: {}".format(kernel.shape))
     else:
         raise RuntimeError(
-            "Unsupported conv2d_winograd_without_weight_transfrom layout {}".format(layout)
+            "Unsupported conv2d_winograd_without_weight_transform layout {}".format(layout)
         )
     return strategy
 
@@ -463,7 +463,7 @@ def wrap_compute_conv2d_gemm(topi_compute):
 
 @conv2d_gemm_without_weight_transform_strategy.register("arm_cpu")
 def conv2d_gemm_without_weight_transform_strategy_arm_cpu(attrs, inputs, out_type, target):
-    """conv2d_winograd_without_weight_transfrom arm cpu strategy"""
+    """conv2d_winograd_without_weight_transform arm cpu strategy"""
     layout = attrs.data_layout
     data = inputs[0]
     strategy = _op.OpStrategy()
@@ -558,6 +558,22 @@ def schedule_dense_arm_cpu(attrs, inputs, out_type, target):
             name="dense_dsp.arm_cpu",
         )
     else:
+        # For dynamic matrix-vector multiply we use a hand written kernel.
+        if (
+            isinstance(inputs[0].shape[0], (int, tir.IntImm))
+            and inputs[0].shape[0] == 1
+            and (
+                topi.utils.is_dynamic_shape(inputs[0].shape)
+                or topi.utils.is_dynamic_shape(inputs[1].shape)
+            )
+        ):
+            strategy.add_implementation(
+                wrap_compute_dense(topi.x86.dense_dynamic),
+                wrap_topi_schedule(topi.x86.schedule_dense_dynamic),
+                name="dense_dynamic.x86",
+                plevel=20,
+            )
+            return strategy
         logger.warning("dense is not optimized for arm cpu.")
         strategy.add_implementation(
             wrap_compute_dense(

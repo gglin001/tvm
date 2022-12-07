@@ -178,13 +178,22 @@ if(BUILD_FOR_HEXAGON)
     "${TVMRT_SOURCE_DIR}/hexagon/ops/*.cc"
   )
 
+  include_directories(
+    "${TVMRT_SOURCE_DIR}/hexagon/ops"
+  )
+
+  set_source_files_properties(
+    "${TVMRT_SOURCE_DIR}/hexagon/ops/conv2d_quant_hvx.cc"
+    PROPERTIES COMPILE_FLAGS "-mhvx"
+  )
+
   set_source_files_properties(
     "${TVMRT_SOURCE_DIR}/hexagon/ops/conv2d_fp16_hvx.cc"
     PROPERTIES COMPILE_FLAGS "-mhvx"
   )
 
   # Include hexagon external library runtime sources
-  if(DEFINED USE_HEXAGON_EXTERNAL_LIBS AND NOT ${USE_HEXAGON_EXTERNAL_LIBS} STREQUAL "")
+  if(USE_HEXAGON_EXTERNAL_LIBS)
     # Check if the libs are provided as an absolute path
     if (EXISTS ${USE_HEXAGON_EXTERNAL_LIBS})
     # Check if the libs are provided as a git url
