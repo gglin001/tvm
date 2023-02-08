@@ -56,7 +56,7 @@ class ConcreteScheduleNode : public ScheduleNode {
     // `error_render_level_` is not visited
     // `symbol_table_` is not visited
     // `analyzer_` is not visited
-    // `rgnd_state_` is not visited
+    // `rand_state_` is not visited
   }
 
   virtual ~ConcreteScheduleNode() = default;
@@ -114,11 +114,12 @@ class ConcreteScheduleNode : public ScheduleNode {
   /******** Schedule: Insert cache stages ********/
   BlockRV CacheRead(const BlockRV& block_rv, int read_buffer_index, const String& storage_scope,
                     const Array<BlockRV> consumer_blocks = {}) override;
-  BlockRV CacheWrite(const BlockRV& block_rv, int write_buffer_index,
-                     const String& storage_scope) override;
+  BlockRV CacheWrite(const BlockRV& block_rv, int write_buffer_index, const String& storage_scope,
+                     const Array<BlockRV> consumer_blocks = {}) override;
   Array<BlockRV> CacheInplace(const BlockRV& block_rv, int read_buffer_index,
                               const String& storage_scope) override;
-  Array<BlockRV> CacheIndex(const BlockRV& block_rv, int write_buffer_index) override;
+  Array<BlockRV> CacheIndex(const BlockRV& block_rv, const String& storage_scope,
+                            int cse_thresh) override;
   BlockRV ReIndex(const BlockRV& block_rv, int buffer_index,
                   BufferIndexType buffer_index_type) override;
   /******** Schedule: Compute location ********/
@@ -137,9 +138,9 @@ class ConcreteScheduleNode : public ScheduleNode {
                     int offset) override;
   void SetScope(const BlockRV& block_rv, int buffer_index, const String& storage_scope) override;
   /******** Schedule: Blockize & Tensorize ********/
-  BlockRV Blockize(const LoopRV& loop_rv) override;
-  void Tensorize(const BlockRV& block_rv, const String& intrin) override;
-  void Tensorize(const LoopRV& loop_rv, const String& intrin) override;
+  BlockRV Blockize(const LoopRV& loop_rv, bool preserve_unit_iters) override;
+  void Tensorize(const BlockRV& block_rv, const String& intrin, bool preserve_unit_iters) override;
+  void Tensorize(const LoopRV& loop_rv, const String& intrin, bool preserve_unit_iters) override;
   /******** Schedule: Annotation ********/
   void Annotate(const LoopRV& loop_rv, const String& ann_key, const ObjectRef& ann_val) override;
   void Unannotate(const LoopRV& loop_rv, const String& ann_key) override;
