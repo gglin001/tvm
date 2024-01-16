@@ -1,0 +1,21 @@
+{
+    "terminal.integrated.env.osx": {
+        "EXT_PYTHONPATH": "${workspaceFolder}/python",
+        "TVM_BACKTRACE": "1",
+        "DMLC_LOG_DEBUG": "1",
+        "GLOG_v": "10",
+    },
+    "terminal.integrated.env.linux": {
+        "EXT_PYTHONPATH": "${workspaceFolder}/python",
+        "TVM_BACKTRACE": "1",
+        "DMLC_LOG_DEBUG": "1",
+        "GLOG_v": "10",
+    },
+    "cmake.configureSettings": {
+        "CMAKE_INSTALL_PREFIX": "${workspaceFolder}/build/install",
+    },
+    "python.analysis.extraPaths": [
+        "python",
+        "${fileDirname}"
+    ],
+}
