@@ -11,9 +11,7 @@
         "DMLC_LOG_DEBUG": "1",
         "GLOG_v": "10",
     },
-    "cmake.configureSettings": {
-        "CMAKE_INSTALL_PREFIX": "${workspaceFolder}/build/install",
-    },
+    "cmake.useCMakePresets": "always",
     "python.analysis.extraPaths": [
         "python",
         "${fileDirname}"
