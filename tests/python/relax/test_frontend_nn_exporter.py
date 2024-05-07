@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import pytest
 
 import tvm
 import tvm.testing
@@ -26,7 +27,7 @@ from tvm.script import ir as I, relax as R, tir as T
 
 
 def test_simple():
-    """A module may be exported from nn.Module to Relax"""
+    """The nn.modules.* may be exported from nn.Module to Relax"""
 
     slm_mod = nn.modules.ReLU()
     exported_mod, _ = slm_mod.export_tvm(
@@ -41,6 +42,7 @@ def test_simple():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 relu = R.nn.relu(x)
+                relu = relu
                 R.output(relu)
             return relu
 
@@ -48,7 +50,11 @@ def test_simple():
 
 
 def test_custom_module():
-    """A module may be exported from nn.Module to Relax"""
+    """A user can define their own nn.Module subclasses
+
+    Like the built-in subclasses, these can be exported from nn.Module
+    to Relax.
+    """
 
     class Before(nn.Module):
         def forward(self, x: R.Tensor):
@@ -67,6 +73,7 @@ def test_custom_module():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 relu = R.nn.relu(x)
+                relu = relu
                 R.output(relu)
             return relu
 
@@ -74,7 +81,7 @@ def test_custom_module():
 
 
 def test_debug_effect():
-    """Passing debug=True provides an argument for IO effect"""
+    """Passing debug=True provides an argument for IO effects"""
 
     slm_mod = nn.modules.ReLU()
     exported_mod, _ = slm_mod.export_tvm(
@@ -101,6 +108,7 @@ def test_debug_effect():
             with R.dataflow():
                 _io = R.null_value()
                 output = (_io,)
+                output = output
                 R.output(output)
             return output
 
@@ -123,6 +131,7 @@ def test_dynamic_shape():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 relu = R.nn.relu(x)
+                relu = relu
                 R.output(relu)
             return relu
 
@@ -155,6 +164,7 @@ def test_dynamic_shape_in_multiple_functions():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 relu = R.nn.relu(x)
+                relu = relu
                 R.output(relu)
             return relu
 
@@ -163,6 +173,7 @@ def test_dynamic_shape_in_multiple_functions():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 silu = R.nn.silu(x)
+                silu = silu
                 R.output(silu)
             return silu
 
@@ -236,12 +247,14 @@ def test_export_nested_module():
                 down: R.Tensor([batch_size, hidden_size]) = R.matmul(
                     R.nn.silu(gate) * up, R.permute_dims(down_proj_weights)
                 )
+                down = down
                 R.output(down)
             return down
 
     assert_structural_equal(exported_mod, Expected)
 
 
+@pytest.mark.xfail(reason="Not yet supported.  See revert https://github.com/apache/tvm/pull/16777")
 def test_generate_parameters():
     """Weights may be expressions in terms of other parameters
 
@@ -437,6 +450,186 @@ def test_generate_parameters():
 
     lifted_mod = relax.transform.LiftTransformParams(shared_transform=True)(exported_mod)
     assert_structural_equal(lifted_mod, ExpectedAfterLift)
+
+
+def test_linear_dynamic_shape():
+    """The weight and bias of nn.Linear have the same out_features
+
+    Even if dynamic, the weight/bias must be the same value.
+    """
+
+    @R.function
+    def forward(
+        x: R.Tensor((1, 4), dtype="float32"),
+        _io: R.Object,
+        weight: R.Tensor(("n", 4), dtype="float32"),
+        bias: R.Tensor(("n",), dtype="float32"),
+    ) -> R.Tuple(R.Tensor((1, "n"), dtype="float32"), R.Tuple(R.Object)):
+        n = T.int64()
+        R.func_attr({"num_input": 2})
+        with R.dataflow():
+            permute_dims: R.Tensor((4, n), dtype="float32") = R.permute_dims(weight, axes=None)
+            matmul: R.Tensor((1, n), dtype="float32") = R.matmul(x, permute_dims, out_dtype="void")
+            add: R.Tensor((1, n), dtype="float32") = R.add(matmul, bias)
+            gv1: R.Tuple(R.Tensor((1, n), dtype="float32"), R.Tuple(R.Object)) = add, (_io,)
+            R.output(gv1)
+        return gv1
+
+    mod = nn.modules.Linear(in_features=4, out_features="n", bias=True)
+    tvm_mod, _ = mod.export_tvm(
+        spec={"forward": {"x": nn.spec.Tensor((1, 4), "float32")}}, debug=True
+    )
+    assert_structural_equal(tvm_mod["forward"], forward, True)
+
+
+@pytest.mark.parametrize(
+    "dynamic_type",
+    [
+        "same_python_string",
+        "different_python_string",
+        "same_tir_var",
+        "distinct_tir_vars_with_distinct_names",
+        pytest.param(
+            "distinct_tir_vars_with_same_name",
+            marks=pytest.mark.xfail(
+                reason="Not yet supported.  See revert https://github.com/apache/tvm/pull/16777"
+            ),
+        ),
+    ],
+)
+def test_duplicate_names(dynamic_type):
+    class Linear(nn.Module):
+        def __init__(self, input_size, output_size):
+            self.weights = nn.Parameter([output_size, input_size], dtype="float32")
+
+        def forward(self, state: nn.Tensor):
+            matmul_weights = nn.op.permute_dims(self.weights)
+            return nn.op.matmul(state, matmul_weights)
+
+    class Model(nn.Module):
+        def __init__(self, hidden_size, intermediate_size):
+            self.embedding = Linear(1024, hidden_size)
+            self.up = Linear(hidden_size, intermediate_size)
+            self.down = Linear(intermediate_size, hidden_size)
+
+        def forward(self, state: nn.Tensor):
+            state = self.embedding(state)
+            state = self.up(state)
+            state = nn.op.silu(state)
+            assert state.dtype == "float32"
+            state = self.down(state)
+            return state
+
+    if dynamic_type == "same_python_string":
+        # Python strings have value equality.  Providing the same name
+        # for two different shape parameters results in a single
+        # symbolic variable.
+        args = ["hidden_size", "hidden_size"]
+        expected_num_symbolic_vars = 1
+    elif dynamic_type == "different_python_string":
+        # Providing two distinct variable names for the two different
+        # shape parameters results in two distinct symbolic variables.
+        args = ["hidden_size", "intermediate_size"]
+        expected_num_symbolic_vars = 2
+    elif dynamic_type == "same_tir_var":
+        # Symbolic variables can be specified as tir.Var instances.
+        # Providing the same variable for the two different shape
+        # parameters uses the symbolic variable in both locations.
+        dim = tir.Var("hidden_size", "int64")
+        args = [dim, dim]
+        expected_num_symbolic_vars = 1
+    elif dynamic_type == "distinct_tir_vars_with_distinct_names":
+        # Providing distinct TIR variables for the two different shape
+        # parameters uses each TIR variable in the specified location.
+        args = [tir.Var("hidden_size", "int64"), tir.Var("intermediate_size", "int64")]
+        expected_num_symbolic_vars = 2
+    elif dynamic_type == "distinct_tir_vars_with_same_name":
+        # TIR variable have reference equality.  Even if two different
+        # TIR variables have the same name, providing two distinct TIR
+        # variables still results in two distinct symbolic variables.
+        args = [tir.Var("hidden_size", "int64"), tir.Var("hidden_size", "int64")]
+        expected_num_symbolic_vars = 2
+    else:
+        raise ValueError(f"Unexpected dynamic_type: {dynamic_type}")
+
+    slm_mod = Model(*args)
+
+    exported_mod, _ = slm_mod.export_tvm(
+        spec={
+            "forward": {"state": nn.spec.Tensor(["batch_size", 1024], dtype="float32")},
+        },
+        debug=False,
+    )
+
+    def get_expected_with_intermediate_size():
+        @I.ir_module
+        class Expected:
+            @R.function
+            def forward(
+                state: R.Tensor(["batch_size", 1024], "float32"),
+                embedding_weights: R.Tensor(["hidden_size", 1024], "float32"),
+                up_weights: R.Tensor(["intermediate_size", "hidden_size"], "float32"),
+                down_weights: R.Tensor(["hidden_size", "intermediate_size"], "float32"),
+            ):
+                R.func_attr({"num_input": 1})
+                batch_size = T.int64()
+                hidden_size = T.int64()
+                intermediate_size = T.int64()
+                with R.dataflow():
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.matmul(
+                        state, R.permute_dims(embedding_weights)
+                    )
+                    state: R.Tensor([batch_size, intermediate_size], "float32") = R.matmul(
+                        state, R.permute_dims(up_weights)
+                    )
+                    state: R.Tensor([batch_size, intermediate_size], "float32") = R.nn.silu(state)
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.matmul(
+                        state, R.permute_dims(down_weights)
+                    )
+                    state = state
+                    R.output(state)
+                return state
+
+        return Expected
+
+    def get_expected_without_intermediate_size():
+        @I.ir_module
+        class Expected:
+            @R.function
+            def forward(
+                state: R.Tensor(["batch_size", 1024], "float32"),
+                embedding_weights: R.Tensor(["hidden_size", 1024], "float32"),
+                up_weights: R.Tensor(["hidden_size", "hidden_size"], "float32"),
+                down_weights: R.Tensor(["hidden_size", "hidden_size"], "float32"),
+            ):
+                R.func_attr({"num_input": 1})
+                batch_size = T.int64()
+                hidden_size = T.int64()
+                with R.dataflow():
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.matmul(
+                        state, R.permute_dims(embedding_weights)
+                    )
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.matmul(
+                        state, R.permute_dims(up_weights)
+                    )
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.nn.silu(state)
+                    state: R.Tensor([batch_size, hidden_size], "float32") = R.matmul(
+                        state, R.permute_dims(down_weights)
+                    )
+                    state = state
+                    R.output(state)
+                return state
+
+        return Expected
+
+    if expected_num_symbolic_vars == 1:
+        expected = get_expected_without_intermediate_size()
+    elif expected_num_symbolic_vars == 2:
+        expected = get_expected_with_intermediate_size()
+    else:
+        raise ValueError(f"Unexpected number of symbolic vars: {expected_num_symbolic_vars}")
+
+    assert_structural_equal(exported_mod["forward"], expected["forward"], True)
 
 
 if __name__ == "__main__":

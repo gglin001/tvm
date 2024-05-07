@@ -20,9 +20,12 @@ import inspect
 import pytest
 
 import tvm
+import tvm.testing
 from tvm import te, tir
-
-from tvm.tir import truncdiv as tdiv, truncmod as tmod, floordiv as fld, floormod as flm
+from tvm.tir import floordiv as fld
+from tvm.tir import floormod as flm
+from tvm.tir import truncdiv as tdiv
+from tvm.tir import truncmod as tmod
 
 
 class TestCase:
@@ -75,6 +78,7 @@ class BaseCompare:
 
 class TestVector(BaseCompare):
     x, y, z = te.var("x"), te.var("y"), te.var("z")
+    x64 = te.var("x", dtype="int64")
     vx = te.var("vx", dtype="int32x2")
     vc = te.var("vc", dtype="uint1")
     test_case = tvm.testing.parameter(
@@ -88,6 +92,20 @@ class TestVector(BaseCompare):
         ),
         TestCase(y.astype("int32x2") + x.astype("int32x2"), (y + x).astype("int32x2")),
         TestCase(tvm.tir.Broadcast(0, 4) + y, tvm.tir.Broadcast(y, 4)),
+        # int64 lanes
+        TestCase(
+            tvm.tir.Broadcast(x, 4) + tvm.tir.Ramp(0, 1, tvm.tir.IntImm(dtype="int64", value=4)),
+            tvm.tir.Ramp(x, 1, 4),
+        ),
+        TestCase(
+            tvm.tir.Broadcast(x, tvm.tir.IntImm(dtype="int64", value=4)) + tvm.tir.Ramp(0, 1, 4),
+            tvm.tir.Ramp(x, 1, 4),
+        ),
+        # int64 iterators with int32 lanes
+        TestCase(
+            tvm.tir.Broadcast(x64, 4) + tvm.tir.Ramp(tvm.tir.IntImm(dtype="int64", value=0), 1, 4),
+            tvm.tir.Ramp(x64, 1, 4),
+        ),
         TestCase(
             tvm.tir.Broadcast(0, tir.vscale() * 8) + y, tvm.tir.Broadcast(y, tir.vscale() * 8)
         ),
@@ -796,6 +814,31 @@ class TestMaxIndex(BaseCompare):
     )
 
 
+class TestScalableIndex(BaseCompare):
+    x, y = te.var("x"), te.var("y")
+    test_case = tvm.testing.parameter(
+        # MinNode
+        TestCase(tvm.te.min(x + tir.vscale() * 4, x), x),
+        TestCase(tvm.te.min(x - tir.vscale() * 4, x), x + tir.vscale() * -4),
+        TestCase(tvm.te.min(x + tir.vscale() * 4, x + tir.vscale() * 8), tir.vscale() * 4 + x),
+        TestCase(tvm.te.min(x + tir.vscale() * 4 - flm(4, tir.vscale() * 4), x), x),
+        TestCase(tvm.te.min(tir.vscale() * x, tir.vscale() * y), tir.vscale() * x, x < y),
+        # MaxNode
+        TestCase(tvm.te.max(x + tir.vscale() * 4, x), x + tir.vscale() * 4),
+        TestCase(tvm.te.max(x - tir.vscale() * 4, x), x),
+        TestCase(tvm.te.max(x + tir.vscale() * 4, x + tir.vscale() * 4), x + tir.vscale() * 4),
+        TestCase(
+            tvm.te.max(x + tir.vscale() * 4 - flm(4, tir.vscale() * 4), x),
+            x + tir.vscale() * 4 - flm(4, tir.vscale() * 4),
+        ),
+        TestCase(tvm.te.max(tir.vscale() * x, tir.vscale() * y), tir.vscale() * x, x > y),
+    )
+
+    def test_simplify(self, test_case):
+        with tvm.target.Target("llvm -mtriple=aarch64-linux-gnu -mattr=+sve"):
+            super().test_simplify(test_case)
+
+
 class TestComparisons(BaseCompare):
     x, y, z = te.var("x"), te.var("y"), te.var("z")
 
@@ -1132,6 +1175,19 @@ class TestIfThenElse(BaseCompare):
             tvm.tir.if_then_else(x > 2, tvm.tir.if_then_else(x > 1, 1, 0), 0),
             tvm.tir.if_then_else(tvm.tir.LT(2, x), 1, 0),
         ),
+    )
+
+
+class TestCLZ(BaseCompare):
+    test_case = tvm.testing.parameter(
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", 0), 32),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", 1), 31),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", 2), 30),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", 128), 24),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", tvm.tir.IntImm("int64", 0)), 64),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", tvm.tir.IntImm("int64", 1)), 63),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", tvm.tir.IntImm("int64", 2)), 62),
+        TestCase(tvm.tir.call_intrin("int32", "tir.clz", tvm.tir.IntImm("int64", 128)), 56),
     )
 
 

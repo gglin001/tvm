@@ -1415,6 +1415,16 @@ PrimExpr RewriteSimplifier::Impl::VisitExpr_(const MinNode* op) {
       }
     }
 
+    // vscale expression comparison
+    if (ContainsVscaleCall(op->a) || ContainsVscaleCall(op->b)) {
+      if (analyzer_->CanProve(op->a <= op->b)) {
+        return op->a;
+      }
+      if (analyzer_->CanProve(op->b <= op->a)) {
+        return op->b;
+      }
+    }
+
     // canonicalization
     TVM_TRY_RECURSIVE_REWRITE(min(min(x, c1), y), min(min(x, y), c1));
     TVM_TRY_RECURSIVE_REWRITE_IF(min(c1 - x, c2), c1 - max(x, c1 - c2), c2.Eval()->value != 0);
@@ -1595,6 +1605,16 @@ PrimExpr RewriteSimplifier::Impl::VisitExpr_(const MaxNode* op) {
         } else {
           return (min(x, c2val / c1val) * c1val).Eval();
         }
+      }
+    }
+
+    // vscale expression comparison
+    if (ContainsVscaleCall(op->a) || ContainsVscaleCall(op->b)) {
+      if (analyzer_->CanProve(op->a >= op->b)) {
+        return op->a;
+      }
+      if (analyzer_->CanProve(op->b >= op->a)) {
+        return op->b;
       }
     }
 
@@ -2249,6 +2269,17 @@ PrimExpr RewriteSimplifier::Impl::VisitExpr_(const CallNode* op) {
           return FloatImm(op->dtype, std::ceil(std::log2(as_float->value)));
         }
       }
+    }
+  } else if (op->op.same_as(Op::Get("tir.clz"))) {
+    if (const auto* arg_int = op->args[0].as<IntImmNode>()) {
+      int bits = arg_int->dtype.bits();
+      if (arg_int->value == 0) return make_const(op->dtype, bits);
+      for (int i = bits - 1; i >= 0; --i) {
+        if ((int64_t(1) << i) & arg_int->value) {
+          return IntImm(op->dtype, bits - i - 1);
+        }
+      }
+      LOG(FATAL) << "Should not reach here";
     }
   }
 

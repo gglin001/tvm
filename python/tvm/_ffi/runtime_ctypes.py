@@ -95,8 +95,9 @@ class DataType(ctypes.Structure):
         np.dtype(np.float16): "float16",
         np.dtype(np.float32): "float32",
         np.dtype(np.float64): "float64",
-        np.dtype(np.float_): "float64",
     }
+    if hasattr(np, "float_"):
+        NUMPY2STR[np.dtype(np.float_)] = "float64"
     STR2DTYPE = {
         "void": {"type_code": DataTypeCode.HANDLE, "bits": 0, "lanes": 0},
         "bool": {"type_code": DataTypeCode.UINT, "bits": 1, "lanes": 1},
@@ -210,6 +211,20 @@ class DataType(ctypes.Structure):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def itemsize(self):
+        """Get the number of bytes of a single element of this data type. When the number of lanes
+        is greater than 1, the itemsize is the size of the vector type.
+
+        Returns
+        -------
+        itemsize : int
+            The number of bytes of a single element of this data type
+        """
+        lanes_as_int = ctypes.c_int16(self.lanes).value
+        if lanes_as_int < 0:
+            raise ValueError("Cannot determine itemsize for scalable vector types")
+        return (self.bits * self.lanes + 7) // 8
 
 
 if ml_dtypes is not None:

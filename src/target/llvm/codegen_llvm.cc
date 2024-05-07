@@ -372,7 +372,11 @@ std::unique_ptr<llvm::Module> CodeGenLLVM::Finish() {
 void CodeGenLLVM::HandleImport(const std::string& code) {
   llvm::StringRef code_str(code);
   std::unique_ptr<llvm::Module> mlib;
+#if TVM_LLVM_VERSION >= 180
+  if (code_str.ends_with(".ll") || code_str.ends_with(".bc")) {
+#else
   if (code_str.endswith(".ll") || code_str.endswith(".bc")) {
+#endif
     mlib = llvm_target_->GetInstance().LoadIR(code);
   } else {
     mlib = llvm_target_->GetInstance().ParseIR(code);
@@ -1478,6 +1482,11 @@ llvm::Value* CodeGenLLVM::CreateIntrinsic(const CallNode* op) {
     llvm::Intrinsic::ID id = llvm::Intrinsic::vscale;
     llvm::Function* f = GetIntrinsicDecl(id, builder_->getInt32Ty(), {});
     return builder_->CreateCall(f);
+  } else if (op->op.same_as(builtin::get_active_lane_mask())) {
+    llvm::Intrinsic::ID id = llvm::Intrinsic::get_active_lane_mask;
+    llvm::Function* f = GetIntrinsicDecl(id, DTypeToLLVMType(op->dtype),
+                                         {builder_->getInt32Ty(), builder_->getInt32Ty()});
+    return builder_->CreateCall(f, {MakeValue(op->args[0]), MakeValue(op->args[1])});
 #endif
   } else {
     LOG(FATAL) << "unknown intrinsic " << op->op;
@@ -1871,7 +1880,11 @@ llvm::Value* CodeGenLLVM::VisitExpr_(const BroadcastNode* op) {
   value = builder_->CreateInsertElement(undef, value, zero);
 #if TVM_LLVM_VERSION >= 110
   llvm::ElementCount ec =
+#if TVM_LLVM_VERSION >= 120
       llvm::ElementCount::get(dtype.get_lanes_or_vscale_factor(), dtype.is_scalable_vector());
+#else
+      llvm::ElementCount(dtype.get_lanes_or_vscale_factor(), dtype.is_scalable_vector());
+#endif
   llvm::Constant* mask = llvm::ConstantVector::getSplat(ec, zero);
 #else
   ICHECK(!dtype.is_scalable_vector())

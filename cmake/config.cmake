@@ -54,6 +54,11 @@ set(USE_CUDA OFF)
 # - /path/to/nccl: use specific path to nccl
 set(USE_NCCL OFF)
 
+# Whether to enable MSCCL support:
+# - ON: enable MSCCL
+# - OFF: disable MSCCL
+set(USE_MSCCL OFF)
+
 # Whether to enable NVTX support (must have USE_CUDA enabled):
 # - ON: enable NCCL with cmake's auto search
 # - OFF: disable NCCL
@@ -333,6 +338,10 @@ set(USE_VTA_TSIM OFF)
 set(USE_VTA_FPGA OFF)
 
 # Whether use Thrust
+# Possible values:
+# - ON: enable Thrust with cmake's auto search
+# - OFF: disable Thrust
+# - /path/to/cccl: use specific path to CCCL
 set(USE_THRUST OFF)
 
 # Whether use cuRAND

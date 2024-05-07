@@ -840,8 +840,10 @@ class CallRetStructInfoDeriver : public StructInfoBaseChecker {
     auto params = finfo->params.value();
     if (params.size() != call->args.size()) {
       ctx->ReportFatal(Diagnostic::Error(call->span)
-                       << "number of arguments and parameters mismatch:"
-                       << " expected " << params.size() << ", given " << call->args.size());
+                       << "Number of arguments and parameters mismatch:"
+                       << " Function " << call->op << " has struct info " << finfo
+                       << " and accepts " << params.size() << " parameters, but was called with "
+                       << call->args.size() << " arguments (" << call->args << ")");
     }
     // Visit each param arg pair, check and populate the var map
     for (size_t i = 0; i < params.size(); ++i) {
@@ -1161,19 +1163,29 @@ class TIRVarsDetector : public StructInfoVisitor {
   Array<tir::Var> GetTIRVars() const { return tir_vars_; }
 
  private:
-  void VisitShape(Array<PrimExpr> shape) {
-    for (const PrimExpr& value : shape) {
-      if (collection_type == VarType::Definition) {
-        if (auto opt = value.as<tir::Var>()) {
-          RecordTIRVar(opt.value());
-        }
-      } else if (collection_type == VarType::Usage) {
-        for (const tir::Var& tir_var : tir::UndefinedVars(value)) {
-          RecordTIRVar(tir_var);
-        }
-      } else {
-        LOG(FATAL) << "Invalid value for VarType enum, " << static_cast<int>(collection_type);
+  void VisitPrimExpr(PrimExpr expr) {
+    if (collection_type == VarType::Definition) {
+      if (auto opt = expr.as<tir::Var>()) {
+        RecordTIRVar(opt.value());
       }
+    } else if (collection_type == VarType::Usage) {
+      for (const tir::Var& tir_var : tir::UndefinedVars(expr)) {
+        RecordTIRVar(tir_var);
+      }
+    } else {
+      LOG(FATAL) << "Invalid value for VarType enum, " << static_cast<int>(collection_type);
+    }
+  }
+
+  void VisitShape(Array<PrimExpr> shape) {
+    for (const PrimExpr& expr : shape) {
+      VisitPrimExpr(expr);
+    }
+  }
+
+  void VisitStructInfo_(const PrimStructInfoNode* prim_sinfo) final {
+    if (prim_sinfo->value.defined()) {
+      VisitPrimExpr(prim_sinfo->value.value());
     }
   }
 

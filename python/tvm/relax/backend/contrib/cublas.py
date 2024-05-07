@@ -20,16 +20,20 @@ import operator
 from functools import reduce
 
 import tvm
+from tvm import DataType
 from tvm.relax import transform
 from tvm.relax.transform import PatternCheckContext
 
 from ..pattern_registry import get_patterns_with_prefix, register_patterns
-from ..patterns import make_matmul_pattern
+from ..patterns import make_matmul_pattern, make_matmul_dequantize_pattern
 from ..utils import has_leaking_intermediate_variables
 
 
-def _is_supported_dtype(lhs_dtype, rhs_dtype):
+def _is_supported_dtype(lhs_dtype, rhs_dtype, out_dtype):
     """Check if dtypes in the given workload are supported by cuBLAS BYOC."""
+    if lhs_dtype == "e4m3_float8" and rhs_dtype == "e4m3_float8":
+        # The output cannot be 'e5m2_float8' if inputs are 'e4m3_float8'
+        return out_dtype != "e5m2_float8"
     return (
         (lhs_dtype == "float16" and rhs_dtype == "float16")
         or (lhs_dtype == "float32" and rhs_dtype == "float32")
@@ -42,10 +46,22 @@ def _check_matmul(context: PatternCheckContext) -> bool:
         return False
     lhs = context.annotated_expr["lhs"]
     rhs = context.annotated_expr["rhs"]
+    matmul_call = context.annotated_expr["root"]
+
+    if "scale" in context.annotated_expr and "zp" in context.annotated_expr:
+        scale = context.annotated_expr["scale"]
+        zero_point = context.annotated_expr["zp"]
+        # Only scalar values for scale and zero_point are supported.
+        if scale.struct_info.ndim != 0 or zero_point.struct_info.ndim != 0:
+            return False
+        # Only zero_point == 0.0 is supported.
+        if zero_point.data.numpy()[()].item() != 0.0:
+            return False
 
     lhs_dtype = lhs.struct_info.dtype
     rhs_dtype = rhs.struct_info.dtype
-    if not _is_supported_dtype(lhs_dtype, rhs_dtype):
+    out_dtype = matmul_call.struct_info.dtype
+    if not _is_supported_dtype(lhs_dtype, rhs_dtype, out_dtype):
         return False
 
     lhs_shape = lhs.struct_info.shape.values
@@ -61,6 +77,32 @@ def _check_matmul(context: PatternCheckContext) -> bool:
             return False
         if not isinstance(rhs_shape[-1], (tvm.tir.expr.IntImm, int)) or rhs_shape[-1] % 4 != 0:
             # Rows number must be multiples of 4 for IGEMM
+            return False
+    elif lhs_dtype == "e4m3_float8" and rhs_dtype == "e4m3_float8":
+        matmul_rhs_var = matmul_call.args[1]
+        rhs_transposed = False
+        if matmul_rhs_var in context.matched_bindings:
+            matmul_rhs_call = context.matched_bindings[matmul_rhs_var]
+            assert (
+                isinstance(matmul_rhs_call, tvm.relax.Call)
+                and matmul_rhs_call.op.name == "relax.permute_dims"
+            )
+            rhs_transposed = True
+
+        if not rhs_transposed:
+            # cuBLAS FP8 operations require rhs being transposed
+            return False
+
+        # cuBLAS FP8 operations require all tensors being aligned to 16 bytes.
+        if (
+            not isinstance(rhs_shape[-1], (tvm.tir.expr.IntImm, int))
+            or rhs_shape[-1] % (16 // DataType(lhs_dtype).itemsize()) != 0
+        ):
+            return False
+        if (
+            not isinstance(rhs_shape[-2], (tvm.tir.expr.IntImm, int))
+            or rhs_shape[-2] % (16 // DataType(out_dtype).itemsize()) != 0
+        ):
             return False
 
     lhs_batches = reduce(operator.mul, lhs_shape[:-2], 1)
@@ -155,11 +197,16 @@ register_patterns(
             ),
             _check_matmul,
         ),
+        (
+            "cublas.matmul_transposed_dequantize",
+            *make_matmul_dequantize_pattern(transposed_rhs=True),
+            _check_matmul,
+        ),
     ]
 )
 
 
-def partition_for_cublas(mod):
+def partition_for_cublas(mod, bind_constants=False):
     """
     Partition the input module into cuBLAS-supported subgraphs.
 
@@ -167,6 +214,9 @@ def partition_for_cublas(mod):
     ----------
     mod: tvm.IRModule
         The IRModule to be partitioned.
+
+    bind_constants : bool
+        Whether or not to keep bound constants in the grouped function.
 
     Returns
     -------
@@ -176,4 +226,6 @@ def partition_for_cublas(mod):
     """
 
     patterns = get_patterns_with_prefix("cublas")
-    return transform.FuseOpsByPattern(patterns, bind_constants=False, annotate_codegen=True)(mod)
+    return transform.FuseOpsByPattern(
+        patterns, bind_constants=bind_constants, annotate_codegen=True
+    )(mod)

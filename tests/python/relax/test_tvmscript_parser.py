@@ -1261,6 +1261,149 @@ def test_if_branch_var_scope():
             return w
 
 
+def test_scalar_tensor_as_branch_condition():
+    """Branch condition can be 0-d tensor"""
+
+    @R.function
+    def func(cond: R.Tensor([], "bool"), x: R.Tensor((1,), "float32")):
+        if cond:
+            out = R.add(x, x)
+        else:
+            out = R.multiply(x, x)
+        return out
+
+    if_else = func.body.blocks[0].bindings[0].value
+    assert isinstance(if_else.cond, relax.Var)
+    tvm.ir.assert_structural_equal(if_else.cond.struct_info, R.Tensor([], "bool"))
+
+
+def test_prim_value_as_branch_condition():
+    """In addition to scalar tensor, can use R.Prim condition"""
+
+    @R.function
+    def func(cond: R.Prim("bool"), x: R.Tensor((1,), "float32")):
+        if cond:
+            out = R.add(x, x)
+        else:
+            out = R.multiply(x, x)
+        return out
+
+    if_else = func.body.blocks[0].bindings[0].value
+    assert isinstance(if_else.cond, relax.Var)
+    tvm.ir.assert_structural_equal(if_else.cond.struct_info, R.Prim("bool"))
+
+
+def test_computed_prim_value_as_branch_condition():
+    """The R.Prim condition may be computed within the function"""
+
+    @R.function
+    def func(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        if R.prim_value(N % 16 == 0):
+            out = R.call_pure_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        else:
+            out = R.call_pure_packed("slow_non_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    N = func.params[0].struct_info.shape[0]
+    if_else = func.body.blocks[0].bindings[0].value
+    assert isinstance(if_else.cond, relax.PrimValue)
+    tvm.ir.assert_structural_equal(N % 16 == 0, if_else.cond.value)
+    tvm.ir.assert_structural_equal(if_else.cond.struct_info, R.Prim(value=N % 16 == 0))
+
+
+def test_tir_expr_as_branch_condition():
+    """Syntactic sugar, wrap PrimExpr as PrimValue"""
+
+    @R.function(private=True)
+    def sugared(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        if N % 16 == 0:
+            out = R.call_pure_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        else:
+            out = R.call_pure_packed("slow_non_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    @R.function(private=True)
+    def unsugared(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        if R.prim_value(N % 16 == 0):
+            out = R.call_pure_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        else:
+            out = R.call_pure_packed("slow_non_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    tvm.ir.assert_structural_equal(unsugared, sugared)
+
+
+def test_scalar_tensor_as_assert_condition():
+    """Branch condition can be 0-d tensor"""
+
+    @R.function(pure=False)
+    def func(cond: R.Tensor([], "bool"), x: R.Tensor((1,), "float32")):
+        _ = R.assert_op(cond)
+        out = R.add(x, x)
+        return out
+
+    assert_op = func.body.blocks[0].bindings[0].value
+    condition = assert_op.args[0]
+    assert isinstance(condition, relax.Var)
+    tvm.ir.assert_structural_equal(condition.struct_info, R.Tensor([], "bool"))
+
+
+def test_prim_value_as_assert_condition():
+    """In addition to scalar tensor, can use R.Prim condition"""
+
+    @R.function(pure=False)
+    def func(cond: R.Prim("bool"), x: R.Tensor((1,), "float32")):
+        _ = R.assert_op(cond)
+        out = R.add(x, x)
+        return out
+
+    assert_op = func.body.blocks[0].bindings[0].value
+    condition = assert_op.args[0]
+    assert isinstance(condition, relax.Var)
+    tvm.ir.assert_structural_equal(condition.struct_info, R.Prim("bool"))
+
+
+def test_computed_prim_value_as_assert_condition():
+    """The R.Prim condition may be computed within the function"""
+
+    @R.function(pure=False)
+    def func(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        _ = R.assert_op(R.prim_value(N % 16 == 0))
+        out = R.call_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    N = func.params[0].struct_info.shape[0]
+    assert_op = func.body.blocks[0].bindings[0].value
+    condition = assert_op.args[0]
+    assert isinstance(condition, relax.PrimValue)
+    tvm.ir.assert_structural_equal(N % 16 == 0, condition.value)
+    tvm.ir.assert_structural_equal(condition.struct_info, R.Prim(value=N % 16 == 0))
+
+
+def test_tir_expr_as_assert_condition():
+    """Syntactic sugar, wrap PrimExpr as PrimValue"""
+
+    @R.function(pure=False, private=True)
+    def sugared(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        _ = R.assert_op(N % 16 == 0)
+        out = R.call_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    @R.function(pure=False, private=True)
+    def unsugared(x: R.Tensor(["N"], "float32")):
+        N = T.int64()
+        _ = R.assert_op(R.prim_value(N % 16 == 0))
+        out = R.call_packed("fast_vectorized_impl", x, sinfo_args=[x.struct_info])
+        return out
+
+    tvm.ir.assert_structural_equal(unsugared, sugared)
+
+
 def test_erase_to_well_defined_removes_internal_vars():
     @R.function
     def foo(x: R.Tensor):
@@ -1552,7 +1695,7 @@ def test_memory_ops():
 
 
 def test_vm_ops():
-    @R.function
+    @R.function(pure=False)
     def foo(x: R.Tensor(("m", "n"), dtype="float32")):
         m = T.int64()
         n = T.int64()
@@ -1664,9 +1807,9 @@ def test_context_aware_parsing():
     class Module:
         @T.prim_func
         def add(
-            X: T.Buffer(T.int64(8), "float32"),
+            X: T.Buffer([T.int64(2), T.int64(4)], "float32"),
             Y: T.Buffer((), "float32"),
-            Z: T.Buffer(T.int64(8), "float32"),
+            Z: T.Buffer([T.int64(2), T.int64(4)], "float32"),
         ):
             T.evaluate(0)
 
@@ -2089,6 +2232,89 @@ def test_extern_func_in_module():
     expected = tvm.IRModule({"my_ext": relax.ExternFunc("my_ext"), "func": func})
 
     _check(parsed_module, expected)
+
+
+def test_define_relax_function_using_global_var():
+    """A @R.function may call a GlobalVar
+
+    When parsing a @R.function, the function's body may reference
+    GlobalVar instances available in the calling python scope.  The
+    resulting function should pass TVMScript's well-formed check, as
+    the GlobalVar may be available in the IRModule for which the
+    function is being defined.
+    """
+
+    @I.ir_module
+    class DefinedAllAtOnce:
+        @R.function
+        def main(A: R.Tensor, B: R.Tensor):
+            return DefinedAllAtOnce.subroutine(A, B)
+
+        @R.function(private=True)
+        def subroutine(A: R.Tensor, B: R.Tensor) -> R.Tensor:
+            return R.matmul(A, B)
+
+    @I.ir_module
+    class MainDefinedLater:
+        @R.function(private=True)
+        def subroutine(A: R.Tensor, B: R.Tensor) -> R.Tensor:
+            return R.matmul(A, B)
+
+    subroutine_gvar = MainDefinedLater.get_global_var("subroutine")
+
+    @R.function
+    def main(A: R.Tensor, B: R.Tensor):
+        return subroutine_gvar(A, B)
+
+    MainDefinedLater["main"] = main
+
+    tvm.ir.assert_structural_equal(DefinedAllAtOnce, MainDefinedLater)
+
+
+def test_function_attributes_are_defined():
+    """func.attrs defaults to an empty DictAttrs"""
+
+    @I.ir_module
+    class Module:
+        @R.function
+        def main(x: R.Tensor, shape: R.Shape(["m", "n"])):
+            output = Module.subroutine(x, shape)
+            return output
+
+        @R.function
+        def subroutine(x: R.Tensor, _: R.Shape(["m", "n"])) -> R.Tensor(["m", "n"]):
+            q = x
+            m, n = T.int64(), T.int64()
+            z = R.match_cast(q, R.Tensor((m, n)))
+            w = z
+            return w
+
+    for gvar, func in Module.functions.items():
+        assert func.attrs is not None
+
+
+@pytest.mark.xfail(reason="Bug: Implicit bounds not provided when parsing")
+def test_function_symbolic_variables_are_annotated():
+    """Symbolic variables must be exposed for struct inference
+
+    Because Relax struct inference is performed while the function is
+    being built, all constraints on symbolic variables that are used
+    for simplifications must be provided to the analyzer.
+    """
+
+    @R.function(private=True)
+    def inferred_sinfo(A: R.Tensor(["extent"])):
+        extent = T.int64()
+        output = R.strided_slice(A, [0], [0], [extent - 1])
+        return output
+
+    @R.function(private=True)
+    def expected(A: R.Tensor(["extent"])) -> R.Tensor(["extent-1"]):
+        extent = T.int64()
+        output: R.Tensor([extent - 1]) = R.strided_slice(A, [0], [0], [extent - 1])
+        return output
+
+    tvm.ir.assert_structural_equal(inferred_sinfo, expected)
 
 
 if __name__ == "__main__":

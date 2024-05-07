@@ -538,7 +538,8 @@ def test_tensor_expr_op():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -610,7 +611,8 @@ def test_tensor_ir_op():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -697,7 +699,8 @@ def test_tensor_ir_inplace_op():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -714,12 +717,13 @@ def test_tensor_ir_inplace_op():
             R.func_attr({"num_input": 4})
             cls = Expected
             with R.dataflow():
-                gv1 = R.call_tir(
+                lv1 = R.call_tir(
                     cls.inplace_take,
                     (embedding_table, input_ids, embedding_dst),
                     out_sinfo=R.Tensor((total_seq_len, hidden_size), dtype),
                     tir_vars=R.shape([offset_1]),
                 )
+                gv1: R.Tensor((total_seq_len, hidden_size), dtype) = lv1
                 R.output(gv1)
             return gv1
 
@@ -768,7 +772,8 @@ def test_tensor_ir_op_no_tir_var():
             R.func_attr({"num_input": 1})
             cls = Expected
             with R.dataflow():
-                gv = R.call_tir(cls.tir_func, (A,), out_sinfo=R.Tensor((16, 16), dtype="float32"))
+                lv = R.call_tir(cls.tir_func, (A,), out_sinfo=R.Tensor((16, 16), dtype="float32"))
+                gv: R.Tensor((16, 16), dtype="float32") = lv
                 R.output(gv)
             return gv
 
@@ -795,7 +800,8 @@ def test_extern():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -882,7 +888,8 @@ def test_multinomial_from_uniform():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -1008,7 +1015,8 @@ def test_sample_top_p_top_k_from_sorted_prob():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv: R.Tuple(R.Object) = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -1122,7 +1130,8 @@ def test_renormalize_top_p_top_k_prob():
         def _initialize_effect() -> R.Tuple(R.Object):
             with R.dataflow():
                 _io: R.Object = R.null_value()
-                gv: R.Tuple(R.Object) = (_io,)
+                lv: R.Tuple(R.Object) = (_io,)
+                gv: R.Tuple(R.Object) = lv
                 R.output(gv)
             return gv
 
@@ -1177,6 +1186,35 @@ def test_renormalize_top_p_top_k_prob():
     tvm.testing.assert_allclose(
         res[0].numpy(), np.array([[0, 0.375, 0.625], [0.3, 0.3, 0.4]]).astype(np.float32)
     )
+
+
+def test_sort_argsort_topk():
+    class Model(Module):
+        def foo(self, x: Tensor):
+            z0 = op.sort(x, axis=-1, descending=True)
+            z1 = op.argsort(x, axis=-1, descending=False)
+            z2 = op.topk(x, k=2, axis=-1)
+            return z0, z1, z2
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def foo(x: R.Tensor(("seq_len", 64), dtype="float16")):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                sort = R.sort(x, axis=-1, descending=True)
+                argsort = R.argsort(x, axis=-1, descending=False, dtype="int32")
+                topk = R.topk(x, k=2, axis=-1, ret_type="both", largest=True, dtype="int32")
+                topk_0 = topk[0]
+                topk_1 = topk[1]
+                gv = sort, argsort, (topk_0, topk_1)
+                R.output(gv)
+            return gv
+
+    m = Model()
+    mod, _ = m.export_tvm({"foo": {"x": spec.Tensor(("seq_len", 64), "float16")}})
+
+    tvm.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
